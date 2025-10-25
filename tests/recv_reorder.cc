@@ -128,6 +128,35 @@ int main()
       test.execute( BytesPushed { 8 } );
     }
 
+    //credit: Jad Bitar
+    {
+    TCPReceiverTestHarness test {"out of order segments around wrap boundary", 10 };
+    const uint32_t isn = UINT32_MAX - 5; //near end ISN
+    test.execute(SegmentArrives {}.with_syn().with_seqno(isn));
+    test.execute(ExpectAckno {Wrap32 { isn + 1}});
+    //first segment, the seqno wraps to 2(here abs seqno 8)
+    //"cde" at stream indices 7,8,9
+    test.execute( SegmentArrives {}.with_seqno(isn + 8).with_data( "cde"));
+    test.execute(ExpectAckno { Wrap32 { isn + 1}});//we wait first byte
+    test.execute( BytesPending { 3});
+    //now second segment, seqno = UINT32_MAX - 2 (abs seqno 4)
+    //"abc" at stream indices 3,4,5  
+    test.execute(SegmentArrives{}.with_seqno(isn + 4).with_data( "abc"));
+    test.execute( ExpectAckno {Wrap32 { isn + 1 }});
+    test.execute(BytesPending { 6});
+    // third segment, seqno wraps to 0 (absolute seqno 6)
+    //"BC" at stream indices 5,6 (there is overlap overlaps and extends)
+    test.execute( SegmentArrives {}.with_seqno( isn + 6 ).with_data( "BC"));
+    test.execute( BytesPending { 7});
+    // fourth segment, we fill gap "XYZ" at stream index 0,1,2
+    test.execute( SegmentArrives{}.with_seqno( isn + 1).with_data( "XYZ"));
+    //so the whole thing assembled is"XYZabBCcde"
+    test.execute(ExpectAckno {Wrap32 { isn + 11}});
+    test.execute(ReadAll {"XYZabBCcde"});
+    test.execute( BytesPushed { 10});
+    test.execute(BytesPending{0});
+    }
+
   } catch ( const exception& e ) {
     cerr << e.what() << "\n";
     return 1;

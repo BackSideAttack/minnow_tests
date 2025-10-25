@@ -279,6 +279,44 @@ int main()
       }
     }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    //credit:  Jad Bitar
+    {
+    const uint32_t isn1 = 1000;
+    const uint32_t isn2 = 5000; //here is different ISN
+    TCPReceiverTestHarness test {"ignore second SYN with different ISN", 4000};
+    //we know that first SYN establishes ISN
+    test.execute(SegmentArrives {}.with_syn().with_seqno(isn1 ));
+    test.execute(ExpectAckno {Wrap32 {isn1 + 1}});
+    //get data
+    test.execute(SegmentArrives {}.with_seqno(isn1 + 1).with_data( "hello"));
+    test.execute(ExpectAckno { Wrap32 { isn1 + 6}});
+    test.execute( ReadAll { "hello"});
+    // here is key, second SYN arrives with different ISN
+    test.execute(SegmentArrives {}.with_syn().with_seqno( isn2));
+    //ackno should not change using original ISN
+    test.execute(ExpectAckno { Wrap32 { isn1 + 6 }});
+    //more data should use original ISN
+    test.execute( SegmentArrives {}.with_seqno( isn1 + 6 ).with_data( "world"));
+    test.execute( ExpectAckno { Wrap32 { isn1 + 11}});
+    test.execute( ReadAll { "world" } );
+    test.execute( BytesPushed { 10 } );
+    }
+
     // credit for test: Danica Xiong
     {
       const size_t cap = 4;
