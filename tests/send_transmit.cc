@@ -165,41 +165,36 @@ int main()
       test.execute( ExpectSeqno { Wrap32 { isn + 1 + 3 } } );
     }
 
+  //credits: Jad Bitar
+  {
+    TCPConfig cfg;
+    const Wrap32 isn( rd() );
+    cfg.isn = isn;
+    TCPSenderTestHarness test { "Cumulative ACK removes all acknowledged segments", cfg };
+    // establish connection
+    test.execute( Push {});
+    test.execute( ExpectMessage {}.with_syn( true ).with_payload_size( 0 ).with_seqno( isn ) );
+    test.execute( AckReceived { Wrap32 { isn + 1 } }.with_win( 10000 ) );
+    test.execute( ExpectSeqnosInFlight { 0 });
+    //I send 5000 bytes, will be sent as 5 segments of 1000 bytes each (MAX_PAYLOAD_SIZE)
+    test.execute( Push { string( 5000, 'x' ) } );
+    // I expect 5 segments
+    test.execute( ExpectMessage {}.with_payload_size( 1000 ).with_seqno( isn + 1 ) );
+    test.execute( ExpectMessage {}.with_payload_size( 1000 ).with_seqno( isn + 1001 ) );
+    test.execute( ExpectMessage {}.with_payload_size( 1000 ).with_seqno( isn + 2001 ) );
+    test.execute( ExpectMessage {}.with_payload_size( 1000 ).with_seqno( isn + 3001 ) );
+    test.execute( ExpectMessage {}.with_payload_size( 1000 ).with_seqno( isn + 4001 ) );
+    test.execute( ExpectNoSegment {} );
+    test.execute( ExpectSeqnosInFlight { 5000 });
+    // send cumulative ACK that acknowledges first 3 segments at once
+    test.execute( AckReceived { Wrap32 { isn + 3001 } }.with_win( 10000 ) );
+    //expect to remove 3 segments 3000bytes and leave 2 segments 2000bytes
+    test.execute( ExpectSeqnosInFlight { 2000 } );
+    //another cumulative ACK that acknowledges remaining segments
+    test.execute( AckReceived { Wrap32 { isn + 5001 } }.with_win( 10000 ) );
+    test.execute( ExpectSeqnosInFlight { 0 } );
+  }
 
-    // credit: Jad Bitar
-    {
-      TCPConfig cfg;
-      //we got ISN near max so that we get wraparound during transmission
-      const Wrap32 isn( UINT32_MAX - 10 );
-      cfg.isn = isn;
-      TCPSenderTestHarness test { "Segment tracking across seqno wraparound", cfg };
-      //syn
-      test.execute( Push {} );
-      test.execute( ExpectMessage {}.with_syn( true ).with_payload_size( 0 ).with_seqno( isn ) );
-      test.execute( ExpectSeqno { isn + 1 } ); //seqno is UINT32_MAX - 9
-      test.execute( ExpectSeqnosInFlight { 1 } );
-      //receiver acks SYN with large window
-      test.execute( AckReceived { Wrap32 { isn + 1 } }.with_win( 100 ) );
-      test.execute( ExpectSeqnosInFlight { 0 } );
-      //we send 30 bytes of data in three segments
-      test.execute( Push { string( 10, 'a' ) } );
-      test.execute( ExpectMessage {}.with_no_flags().with_payload_size( 10 ).with_data( string( 10, 'a' ) ).with_seqno( isn + 1 ) );
-      test.execute( Push { string( 10, 'b' ) } );
-      test.execute( ExpectMessage {}.with_no_flags().with_payload_size( 10 ).with_data( string( 10, 'b' ) ).with_seqno( isn + 11 ) );
-      test.execute( Push { string( 10, 'c' ) } );
-      test.execute( ExpectMessage {}.with_no_flags().with_payload_size( 10 ).with_data( string( 10, 'c' ) ).with_seqno( isn + 21 ) );
-      test.execute( ExpectNoSegment {} );
-      test.execute( ExpectSeqno { isn + 31 } );
-      test.execute( ExpectSeqnosInFlight { 30 } );
-      //ack first segment 
-      test.execute( AckReceived { Wrap32 { isn + 11 } }.with_win( 100 ) );
-      test.execute( ExpectSeqnosInFlight { 20 } );
-      test.execute( AckReceived { Wrap32 { isn + 21 } }.with_win( 100 ) );
-      test.execute( ExpectSeqnosInFlight { 10 } );
-      test.execute( AckReceived { Wrap32 { isn + 31 } }.with_win( 100 ) ); 
-      test.execute( ExpectSeqnosInFlight { 0 } ); // all acked
-      test.execute( ExpectNoSegment {} );
-    }
 
   } catch ( const exception& e ) {
     cerr << e.what() << "\n";

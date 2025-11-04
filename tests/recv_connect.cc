@@ -112,6 +112,30 @@ int main()
       TCPReceiverTestHarness test { "window size at 10M", 10'000'000 };
       test.execute( ExpectWindow { UINT16_MAX } );
     }
+
+  // credits: Jad Bitar
+  {
+    const uint32_t isn =5000;
+    TCPReceiverTestHarness test { "Retransmitted SYN with same ISN is idempotent", 4000};
+    // first SYN make connection
+    test.execute( SegmentArrives {}.with_syn().with_seqno( isn ));
+    test.execute( ExpectAckno { Wrap32 { isn + 1 } } );
+    test.execute( BytesPushed { 0} );
+    // get data
+    test.execute( SegmentArrives {}.with_seqno( isn + 1 ).with_data( "hello" ));
+    test.execute( ExpectAckno { Wrap32 { isn + 6 } } );
+    test.execute( BytesPushed { 5 } );
+    test.execute( ReadAll { "hello" } );
+    //SYN retransmitted (with same ISN), should be harmless
+    test.execute( SegmentArrives {}.with_syn().with_seqno( isn ));
+    // here the state should be unchanged
+    test.execute( ExpectAckno { Wrap32 { isn + 6 } } );
+    test.execute( BytesPushed { 5 } );  // 5 not 0!!
+    test.execute( SegmentArrives {}.with_seqno( isn + 6 ).with_data( "world" ) );
+    test.execute( ExpectAckno { Wrap32 { isn + 11 } } );
+    test.execute( BytesPushed { 10 } );
+    test.execute( ReadAll { "world" } );
+  }
   } catch ( const exception& e ) {
     cerr << e.what() << "\n";
     return 1;

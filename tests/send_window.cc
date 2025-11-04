@@ -137,6 +137,43 @@ int main()
       test.execute( ExpectMessage {}.with_fin( true ).with_data( "4567" ) );
       test.execute( ExpectNoSegment {} );
     }
+
+  // crdits = Jad Bitar
+  {
+    TCPConfig cfg;
+    const Wrap32 isn( rd() );
+    cfg.isn = isn;
+    TCPSenderTestHarness test { "Queued data is sent when window opens from zero", cfg };
+    test.execute( Push {} );
+    test.execute( ExpectMessage {}.with_syn( true ).with_payload_size( 0 ).with_seqno( isn ) );
+    //reciever ack with ZERO window
+    test.execute( AckReceived { Wrap32 { isn + 1 } }.with_win( 0 ) );
+    test.execute( ExpectSeqnosInFlight { 0 } );
+    //push 30 bytes while window is zero
+    test.execute( Push { string( 30, 'x' ) } );
+    // 1 byte as probe (zero window)
+    test.execute( ExpectMessage {}.with_no_flags().with_payload_size( 1 ).with_data( "x" ).with_seqno( isn + 1 ) );
+    test.execute( ExpectNoSegment {} );
+    test.execute( ExpectSeqnosInFlight { 1 } );
+    // receiver ACK probe byte but window still zero
+    test.execute( AckReceived { Wrap32 { isn + 2 } }.with_win( 0 ) );
+    test.execute( ExpectMessage {}.with_no_flags().with_payload_size( 1 ).with_seqno( isn + 2 ) );
+    test.execute( ExpectNoSegment {} );
+    test.execute( ExpectSeqnosInFlight { 1 } );
+    // window open to 20 bytes and byte stream has 28 left so should send 20 bytes for now
+    test.execute( AckReceived { Wrap32 { isn + 3 } }.with_win( 20 ) );
+    test.execute( ExpectMessage {}.with_no_flags().with_payload_size( 20 ).with_seqno( isn + 3 ) );
+    test.execute( ExpectNoSegment {} );
+    test.execute( ExpectSeqnosInFlight { 20 } );
+    //send remaining
+    test.execute( AckReceived { Wrap32 { isn + 23 } }.with_win( 20 ) );
+    test.execute( ExpectMessage {}.with_no_flags().with_payload_size( 8 ).with_seqno( isn + 23 ) );
+    test.execute( ExpectNoSegment {} );
+    test.execute( ExpectSeqnosInFlight { 8 } );
+    // ACK
+    test.execute( AckReceived { Wrap32 { isn + 31 } }.with_win( 100 ) );
+    test.execute( ExpectSeqnosInFlight { 0 } );
+  }
   } catch ( const exception& e ) {
     cerr << e.what() << "\n";
     return 1;
